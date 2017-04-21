@@ -45,21 +45,21 @@ class AuthHttpServiceSpec extends AuthHttpServiceFixture {
     repo.save(user).run
 
     val result = AuthHttpService.findHttpUser(List(Header("x-auth-token", token.token)))
-    result.run should be (Some(user))
+    result.run should be (user)
   }
 
   it should "NOT find a token user from headers if it was not persisted" in {
     implicit val authTokenRepository = new InMemoryTokenRepository()
 
     val result = AuthHttpService.findHttpUser(List(Header("x-auth-token", "S3cr3t")))
-    result.run should be (None)
+    result.attemptRun should be ('left)
   }
 
   it should "NOT find a token user from headers if X-Auth-Token header is not part of it" in {
     implicit val authTokenRepository = new InMemoryTokenRepository()
 
     val result = AuthHttpService.findHttpUser(List.empty[Header])
-    result.run should be (None)
+    result.attemptRun should be ('left)
   }
 
 }

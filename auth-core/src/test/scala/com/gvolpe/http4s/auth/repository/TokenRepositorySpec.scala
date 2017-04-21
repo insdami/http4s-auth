@@ -17,21 +17,21 @@ class TokenRepositorySpec extends FlatSpecLike with Matchers {
     val repo = new InMemoryTokenRepository()
     val user = HttpUser("gvolpe", HttpToken("S3cr3t"))
     repo.remove(user).run         shouldBe a [-\/[_]]
-    repo.find(user.httpToken).run shouldBe None
+    repo.find(user.httpToken).attemptRun shouldBe 'left
   }
 
   it should "find a token user" in {
     val repo = new InMemoryTokenRepository()
     val user = HttpUser("gvolpe", HttpToken("S3cr3t"))
     repo.save(user).run                 should be (\/-())
-    repo.find(HttpToken("S3cr3t")).run  should be (Some(user))
+    repo.find(HttpToken("S3cr3t")).run  should be (user)
   }
 
   it should "NOT find a token user after it is deleted" in {
     val repo = new InMemoryTokenRepository()
     val user = HttpUser("gvolpe", HttpToken("S3cr3t"))
     repo.save(user).run                 should be (\/-())
-    repo.remove(user).run               should be (\/-())
+    repo.remove(user).run               should be (user)
     repo.find(HttpToken("S3cr3t")).run  should be (None)
   }
 

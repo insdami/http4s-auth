@@ -1,6 +1,7 @@
 package com.gvolpe.http4s.auth.endpoint
 
 import com.gvolpe.http4s.auth.model._
+import com.gvolpe.http4s.auth.repository.exceptions.UserNotFound
 import com.gvolpe.http4s.auth.repository.{InMemoryTokenRepository, InMemoryUserRepository, TokenRepository, UserRepository}
 import io.circe._
 import io.circe.generic.auto._
@@ -116,15 +117,15 @@ class AuthHttpEndpointSpec extends AuthHttpEndpointFixture {
 }
 
 object FailureTokenRepository extends TokenRepository {
-  override def find(token: HttpToken): Task[Option[HttpUser]] = Task.now(Some(HttpUser("gvolpe", HttpToken("c56d0f6e23a608cfe5f2e6922339e6b0b93c1ad8-1492469832547-gvolpe"))))
-  override def remove(user: HttpUser): Task[\/[Throwable, Unit]] = Task.now(-\/(new Exception("")))
+  override def find(token: HttpToken): Task[HttpUser] = Task.now(HttpUser("gvolpe", HttpToken("c56d0f6e23a608cfe5f2e6922339e6b0b93c1ad8-1492469832547-gvolpe")))
+  override def remove(user: HttpUser): Task[HttpUser] = Task.fail(UserNotFound)
   override def save(user: HttpUser): Task[\/[Throwable, Unit]] = Task.now(-\/(new Exception("")))
 }
 
 object FailureUserRepository extends UserRepository {
   val fakeDb = List(User("mrfake", User.encrypt("123456")))
-  override def find(username: Username): Task[Option[User]] = Task.now { fakeDb.find(_.username == username) }
-  override def save(user: User): Task[\/[Throwable, Unit]] = Task.now(-\/(new Exception("")))
+  override def find(username: Username): Task[User] = fakeDb.find(_.username == username).fold[Task[User]](Task.fail(UserNotFound))(Task.now)
+  override def save(user: User): Task[\/[Throwable, Unit]] = Task.fail(new Exception("I will be your nightmare!"))
 }
 
 trait AuthHttpEndpointFixture extends FlatSpecLike with Matchers {

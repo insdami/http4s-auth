@@ -1,6 +1,7 @@
 package com.gvolpe.http4s.auth.service
 
 import com.gvolpe.http4s.auth.model._
+import com.gvolpe.http4s.auth.repository.exceptions.TokenNotFound
 import com.gvolpe.http4s.auth.repository.{TokenRepository, UserRepository}
 import io.circe._
 import io.circe.generic.auto._
@@ -30,75 +31,58 @@ object AuthHttpService {
       HttpUser.validateToken(HttpToken(tokenHeader.value))
     }
 
-  def findHttpUser(headers: List[Header])(implicit tokenRepo: TokenRepository): Task[Option[HttpUser]] = {
-    findTokenFromHeaders(headers) match {
-      case Some(user) =>
-        tokenRepo.find(user.httpToken).map(_.filter(_ == user))
-      case None =>
-        Task.now(None)
+  def findHttpUser(headers: List[Header])(implicit tokenRepo: TokenRepository): Task[HttpUser] =
+    findTokenFromHeaders(headers).fold[Task[HttpUser]](Task.fail(TokenNotFound)){ token =>
+      tokenRepo.find(token.httpToken)
     }
-  }
 
   def signUp(form: SignUpForm)(implicit tokenRepo: TokenRepository, userRepo: UserRepository): Task[Response] = {
-    userRepo.find(form.username) flatMap {
-      case Some(user) =>
-        Conflict(s"User with username ${user.username} already exists!")
-      case None =>
-        val token = HttpUser.createToken(form.username)
-        (for {
-          _ <- eitherT(userRepo.save(User(form.username, User.encrypt(form.password))))
-          _ <- eitherT(tokenRepo.save(HttpUser(form.username, token)))
-        } yield ()).run flatMap {
-          case \/-(()) =>
-//            val expires = Some(Instant.now().plus(1, ChronoUnit.DAYS))
-            Created(token) //.addCookie(Cookie(XAuthToken, token.token, expires))
-          case -\/(error) =>
-            InternalServerError(error.getMessage)
-        }
-    }
+    userRepo.find(form.username) flatMap(user => Conflict(s"User with username ${user.username} already exists!")) or
+      createUser(form.username, form.password).flatMap(Created(_))
   }
 
+  private def createUser(username: String, password: String)(implicit tokenRepo: TokenRepository, userRepo: UserRepository): Task[HttpToken] = {
+    lazy val token = HttpUser.createToken(username)
+    for {
+      _ <- userRepo.save(User(username, User.encrypt(password)))
+      _ <- tokenRepo.save(HttpUser(username, token))
+    } yield token
+  }
+
+
   def logout(req: Request)(implicit tokenRepo: TokenRepository): Task[Response] = {
-    findHttpUser(req.headers.toList) flatMap {
-      case Some(user) =>
-        tokenRepo.remove(user) flatMap {
-          case \/-(())    =>
-            NoContent() //.removeCookie(XAuthToken)
-          case -\/(error) =>
-            log.info(s"Logout: ${error.getMessage}")
-            InternalServerError(error.getMessage)
-        }
-      case None =>
-        NotFound()
+    findHttpUser(req.headers.toList).flatMap(tokenRepo.remove).flatMap(_ => NoContent()) or NotFound().handleWith {
+      case error =>
+        log.info(s"Logout: ${error.getMessage}")
+        InternalServerError()
     }
   }
 
   def login(form: LoginForm)(implicit tokenRepo: TokenRepository, userRepo: UserRepository): Task[Response] = {
-    userRepo.find(form.username) flatMap {
-      case Some(user) if User.isPasswordValid(user.password, form.password) =>
-        val token = HttpUser.createToken(form.username)
-        val user  = HttpUser(form.username, token)
-        tokenRepo.save(user).flatMap {
-          case \/-(())    =>
-//            val expires = Some(Instant.now().plus(1, ChronoUnit.DAYS))
-            Ok(token) //.addCookie(Cookie(XAuthToken, token.token, expires))
-          case -\/(error) =>
-            log.info(s"Logout: ${error.getMessage}")
-            InternalServerError(error.getMessage)
-        }
-      case Some(user) =>
-        unauthorized
-      case None =>
-        NotFound(s"Username ${form.username} not found!")
-    }
+//    userRepo.find(form.username) flatMap {
+//      case Some(user) if User.isPasswordValid(user.password, form.password) =>
+//        val token = HttpUser.createToken(form.username)
+//        val user  = HttpUser(form.username, token)
+//        tokenRepo.save(user).flatMap {
+//          case \/-(())    =>
+////            val expires = Some(Instant.now().plus(1, ChronoUnit.DAYS))
+//            Ok(token) //.addCookie(Cookie(XAuthToken, token.token, expires))
+//          case -\/(error) =>
+//            log.info(s"Logout: ${error.getMessage}")
+//            InternalServerError(error.getMessage)
+//        }
+//      case Some(user) =>
+//        unauthorized
+//      case None =>
+//        NotFound(s"Username ${form.username} not found!")
+//    }
+
+    NotFound(s"Username ${form.username} not found!")
   }
 
 }
 
 object Secured {
   def apply(req: Request)(response: Task[Response])(implicit repo: TokenRepository): Task[Response] =
-    AuthHttpService.findHttpUser(req.headers.toList) flatMap {
-      case Some(u) => response
-      case None    => AuthHttpService.unauthorized
-    }
+    AuthHttpService.findHttpUser(req.headers.toList).flatMap(_ => response) or AuthHttpService.unauthorized
 }

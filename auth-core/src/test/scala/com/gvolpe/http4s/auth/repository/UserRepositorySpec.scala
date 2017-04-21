@@ -14,14 +14,14 @@ class UserRepositorySpec extends FlatSpecLike with Matchers {
 
   it should "NOT find a non existent user" in {
     val repo = new InMemoryUserRepository()
-    repo.find("gvolpe").run should be (None)
+    repo.find("gvolpe").attemptRun should be ('left)
   }
 
   it should "find an user" in {
     val repo = new InMemoryUserRepository()
     val user = User("gvolpe", "123456")
     repo.save(user).run
-    repo.find("gvolpe").run should be (Some(user))
+    repo.find("gvolpe").run should be (user)
   }
 
 }
